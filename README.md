@@ -3,16 +3,33 @@
 [详情](https://jacyl4.github.io/post/debian-gateway/)
 
 ### 服务端：
+
 ```
 快速安装版
 apt-get install -y curl
 curl -O https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Server/server && chmod +x server && ./server
 ```
 
-![服务端](https://i.loli.net/2019/05/27/5ceb25f6cbf0929497.png)
+```
+大力编译版
+apt-get install -y curl
+curl -O https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Server/server2 && chmod +x server2 && ./server2
+```
+
+![服务端](https://i.loli.net/2019/05/31/5cf04ea75135163355.png)
 
 ### 客户端：
 ```
 wget --no-check-certificate https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Client/client -O ~/client && chmod +x ~/client && ~/client
 ```
-![客户端](https://i.loli.net/2019/05/23/5ce5a57b8a79538090.png)
+![客户端](https://i.loli.net/2019/05/31/5cf04ea736faf86947.png)
+
+
+* * *  
+
+<p align="center">
+<img src="https://i.loli.net/2019/05/31/5cf09b2102df023402.jpg">
+</p>
+<p align="center">
+<img width="360" src="https://i.loli.net/2019/05/31/5cf09cae0e15a99033.png">
+</p>

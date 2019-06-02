@@ -18,7 +18,23 @@ export LANGUAGE=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 export LC_TYPE=en_US.UTF-8
 export LANG=en_US.UTF-8
-locale-gen en_US.UTF-8
+cat > /etc/default/locale << EOF
+LANG=en_US.UTF-8
+LANGUAGE=en_US.UTF-8
+LC_CTYPE="en_US.UTF-8"
+LC_NUMERIC="en_US.UTF-8"
+LC_TIME="en_US.UTF-8"
+LC_COLLATE="en_US.UTF-8"
+LC_MONETARY="en_US.UTF-8"
+LC_MESSAGES="en_US.UTF-8"
+LC_PAPER="en_US.UTF-8"
+LC_NAME="en_US.UTF-8"
+LC_ADDRESS="en_US.UTF-8"
+LC_TELEPHONE="en_US.UTF-8"
+LC_MEASUREMENT="en_US.UTF-8"
+LC_IDENTIFICATION="en_US.UTF-8"
+LC_ALL=en_US.UTF-8
+EOF
 
 sed -i '/GRUB_CMDLINE_LINUX_DEFAULT=/c\GRUB_CMDLINE_LINUX_DEFAULT="quiet splash zswap.enabled=1 zswap.compressor=lz4"'  /etc/default/grub
 update-grub
@@ -31,16 +47,24 @@ sed -i '/# End of file/i\* hard nofile 65535' /etc/security/limits.conf
 echo "ulimit -n 65535" > ~/.bash_profile
 
 cat > /etc/sysctl.conf << EOF
+net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv4.ip_forward = 1
 net.ipv4.conf.all.route_localnet = 1
-net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv4.tcp_fastopen = 3
-fs.file-max = 65535
+fs.file-max = 1000000
 net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_syn_retries = 2
-net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_syn_retries = 1
+net.ipv4.tcp_synack_retries = 1
 net.ipv4.tcp_timestamps = 0
 net.ipv4.tcp_fin_timeout = 30
+fs.inotify.max_user_instances = 8192
+net.ipv4.ip_local_port_range = 1024 65535 
+net.ipv4.tcp_max_syn_backlog = 16384
+net.ipv4.tcp_max_tw_buckets = 6000
+net.ipv4.route.gc_timeout = 100
+net.core.somaxconn = 32768
+net.ipv4.tcp_max_orphans = 32768
+net.core.netdev_max_backlog = 32768
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 EOF
@@ -445,6 +469,13 @@ EOF
 chmod +x /usr/local/bin/updateGWD
 /usr/local/bin/updateGWD
 
+if [[ "$(crontab -l | grep 'updateGWD' | awk '{print $6}')" != "/usr/local/bin/updateGWD" ]]; then
+    crontab -l > now.cron
+    echo '0 4 * * * /usr/local/bin/updateGWD' >> now.cron
+    crontab now.cron
+fi
+rm -rf now.cron
+
 rm -rf /usr/local/bin/ui-*
 unzip ui-script.zip
 unzip ui-web.zip
@@ -563,12 +594,6 @@ pihole restartdns
 systemctl restart pihole-FTL
 
 postinstall
-if [[ "$(crontab -l | grep 'updateGWD' | awk '{print $6}')" != "/usr/local/bin/updateGWD" ]]; then
-    crontab -l > now.cron
-    echo '0 4 * * * /usr/local/bin/updateGWD' >> now.cron
-    crontab now.cron
-fi
-rm -rf now.cron
 
 sed -e "/(ALL:ALL)/a\www-data ALL=(root)  NOPASSWD:ALL" -i /etc/sudoers
 
@@ -591,6 +616,44 @@ pihole -a -p
 blue "----------------------"
 blue  "更改Pi-hole密码 [完毕]"
 blue "----------------------"
+}
+
+
+installlowlatency(){
+mkdir -p ~/bbrkernel && cd bbrkernel
+wget http://ftp.br.debian.org/debian/pool/main/o/openssl/libssl1.0.0_1.0.1t-1+deb8u8_amd64.deb
+dpkg -i libssl1.0.0_1.0.1t-1+deb8u8_amd64.deb
+wget -N --no-check-certificate https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-headers-4.16.2-041602_4.16.2-041602.201804121130_all.deb
+wget -N --no-check-certificate https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-headers-4.16.2-041602-lowlatency_4.16.2-041602.201804121130_amd64.deb
+wget -N --no-check-certificate https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-image-4.16.2-041602-lowlatency_4.16.2-041602.201804121130_amd64.deb
+
+dpkg -i linux-headers-*_all.deb
+dpkg -i linux-headers-*-lowlatency_*_amd64.deb
+dpkg -i linux-image-*-lowlatency_*_amd64.deb
+rm -rf ~/bbrkernel
+
+cat > ~/clearkernel <<EOF
+#!/bin/bash
+PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+/usr/bin/apt purge -y linux-image-*-amd64
+update-grub
+crontab -l > ~/now.cron
+sed -i '/clearkernel/d' ~/now.cron
+crontab ~/now.cron
+rm -rf ~/now.cron
+rm -rf ~/clearkernel
+reboot
+EOF
+chmod +x ~/clearkernel
+crontab -l > ~/now.cron
+echo '@reboot sleep 10 ; ~/clearkernel' >> ~/now.cron
+crontab ~/now.cron
+rm -rf ~/now.cron
+
+blue "---------------------"
+blue  "安装低延迟内核 [完毕]"
+blue "---------------------"
+reboot
 }
 
 
@@ -686,6 +749,7 @@ fi
     echo
     green  "1. 安装de_GWD"
     green  "2. 更改Pi-hole密码"
+    green  "3. 安装低延迟内核并重启"
     yellow "9. 更新Pi-hole"
     yellow "0. 更新de_GWD"
     red    "CTRL+C退出"
@@ -698,6 +762,10 @@ fi
     ;;
     2)
     change_piholeadmin
+    start_menu 
+    ;;
+    3)
+    installlowlatency
     start_menu 
     ;;
     9)
