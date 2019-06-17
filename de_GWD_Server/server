@@ -7,10 +7,6 @@ function red()    { echo -e "\033[31m\033[01m $1 \033[0m"; }
 
 
 function preinstall(){
-export LANGUAGE=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-export LC_TYPE=en_US.UTF-8
-export LANG=en_US.UTF-8
 cat > /etc/default/locale << EOF
 LANG=en_US.UTF-8
 LANGUAGE=en_US.UTF-8
@@ -28,6 +24,7 @@ LC_MEASUREMENT="en_US.UTF-8"
 LC_IDENTIFICATION="en_US.UTF-8"
 LC_ALL=en_US.UTF-8
 EOF
+locale-gen en_US.UTF-8
 
 sed -i '/GRUB_CMDLINE_LINUX_DEFAULT=/c\GRUB_CMDLINE_LINUX_DEFAULT="quiet splash zswap.enabled=1 zswap.compressor=lz4"'  /etc/default/grub
 update-grub
@@ -40,6 +37,7 @@ sed -i '/# End of file/i\* hard nofile 65535' /etc/security/limits.conf
 echo "ulimit -n 65535" > ~/.bash_profile
 
 cat > /etc/sysctl.conf << EOF
+vm.overcommit_memory = 1
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv4.tcp_fastopen = 3
 fs.file-max = 1000000
@@ -73,7 +71,7 @@ cat >> /etc/apt/sources.list << EOF
 deb http://nginx.org/packages/debian/ stretch nginx
 deb-src http://nginx.org/packages/debian/ stretch nginx
 EOF
-wget http://nginx.org/keys/nginx_signing.key && apt-key add nginx_signing.key
+wget -N http://nginx.org/keys/nginx_signing.key && apt-key add nginx_signing.key
 fi
 
 apt update && apt -y upgrade
@@ -85,7 +83,7 @@ function installv2ray(){
 mkdir -p /etc/v2ray
 mkdir -p /usr/bin/v2ray
 mkdir -p /var/log/v2ray
-wget https://github.com/jacyl4/de_GWD/raw/master/de_GWD_Client/v2amd64.zip -O ~/v2amd64.zip
+wget -O ~/v2amd64.zip https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Client/v2amd64.zip
 unzip v2amd64.zip
 mv -f ~/v2amd64/v2ray /usr/bin/v2ray/v2ray
 mv -f ~/v2amd64/v2ctl /usr/bin/v2ray/v2ctl
@@ -114,6 +112,21 @@ http {
   include mime.types;
   default_type application/octet-stream;
 
+  server_names_hash_bucket_size 128;
+  client_header_buffer_size 32k;
+  large_client_header_buffers 4 32k;
+  client_max_body_size 1024m;
+  client_body_buffer_size 10m;
+
+  fastcgi_connect_timeout 300;
+  fastcgi_send_timeout 300;
+  fastcgi_read_timeout 300;
+  fastcgi_buffer_size 64k;
+  fastcgi_buffers 4 64k;
+  fastcgi_busy_buffers_size 128k;
+  fastcgi_temp_file_write_size 128k;
+  fastcgi_intercept_errors on;
+  
   sendfile            on;
   tcp_nodelay         on;
   tcp_nopush          on;
@@ -280,166 +293,6 @@ EOF
 }
 
 
-function installnginxlnmp(){
-nginxdomain="$(cd /home/wwwroot && ls | grep $vpsdomain)"
-
-cat > /usr/local/nginx/conf/ssl/$nginxdomain/update_ocsp_cache << EOF
-#!/bin/bash
-wget -O intermediate.pem https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem
-wget -O root.pem https://ssl-tools.net/certificates/dac9024f54d8f6df94935fb1732638ca6ad77c13.pem
-mv -f intermediate.pem /usr/local/nginx/conf/ssl/$nginxdomain/
-mv -f root.pem /usr/local/nginx/conf/ssl/$nginxdomain/
-cat /usr/local/nginx/conf/ssl/$nginxdomain/intermediate.pem > /usr/local/nginx/conf/ssl/$nginxdomain/bundle.pem
-cat /usr/local/nginx/conf/ssl/$nginxdomain/root.pem >> /usr/local/nginx/conf/ssl/$nginxdomain/bundle.pem
-
-openssl ocsp -no_nonce \
-    -issuer  /usr/local/nginx/conf/ssl/$nginxdomain/intermediate.pem \
-    -cert    /usr/local/nginx/conf/ssl/$nginxdomain/fullchain.cer \
-    -CAfile  /usr/local/nginx/conf/ssl/$nginxdomain/bundle.pem \
-    -VAfile  /usr/local/nginx/conf/ssl/$nginxdomain/bundle.pem \
-    -url     http://ocsp.int-x3.letsencrypt.org \
-    -respout /usr/local/nginx/conf/ssl/$nginxdomain/ocsp.resp
-EOF
-chmod +x /usr/local/nginx/conf/ssl/$nginxdomain/update_ocsp_cache
-/usr/local/nginx/conf/ssl/$nginxdomain/update_ocsp_cache
-
-
-if [[ "$(crontab -l | grep 'update_ocsp_cache' | awk '{print $6}')" != "/usr/local/nginx/conf/ssl/'$nginxdomain'/update_ocsp_cache" ]]; then
-crontab -l > now.cron
-echo "0 0 * * 7 /usr/local/nginx/conf/ssl/$nginxdomain/update_ocsp_cache" >> now.cron
-crontab now.cron
-fi
-
-cat > /usr/local/nginx/conf/vhost/$nginxdomain.conf<< EOF
-upstream dns-backend {
-  server 127.0.0.1:8053;
-}
-
-server {
-  listen 80;
-  server_name $vpsdomain www.$vpsdomain;
-  root  /home/wwwroot/$nginxdomain;
-  index index.html index.htm index.php default.html default.htm default.php;
-  return 301 https://\$server_name\$request_uri;
-
-  include rewrite/none.conf;
-  #error_page   404   /404.html;
-
-  # Deny access to PHP files in specific directory
-  #location ~ /(wp-content|uploads|wp-includes|images)/.*\.php$ { deny all; }
-
-  include enable-php-pathinfo.conf;
-
-  location ~ .*\.(gif|jpg|jpeg|png|bmp|swf)$
-  {
-      expires      30d;
-  }
-
-  location ~ .*\.(js|css)?$
-  {
-      expires      12h;
-  }
-
-  location ~ /.well-known {
-      allow all;
-  }
-
-  location ~ /\.
-  {
-      deny all;
-  }
-
-  access_log off;
-  error_log off;
-}
-
-server {
-  listen 443 ssl http2;
-  server_name $vpsdomain www.$vpsdomain;
-  root  /home/wwwroot/$nginxdomain;
-  index index.html index.htm index.php default.html default.htm default.php;
-
-  ssl_certificate /usr/local/nginx/conf/ssl/$nginxdomain/fullchain.cer;
-  ssl_certificate_key /usr/local/nginx/conf/ssl/$nginxdomain/$nginxdomain.key;
-  ssl_session_timeout 5m;
-  ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
-  ssl_prefer_server_ciphers on;
-  ssl_ciphers "EECDH+CHACHA20:EECDH+CHACHA20-draft:EECDH+AES128:RSA+AES128:EECDH+AES256:RSA+AES256:EECDH+3DES:RSA+3DES:!MD5";
-  ssl_session_cache builtin:1000 shared:SSL:10m;
-  ssl_dhparam /usr/local/nginx/conf/ssl/dhparam.pem;
-  
-  # OCSP Stapling ---
-  ssl_stapling on;
-  ssl_stapling_verify on;
-  ssl_stapling_file /usr/local/nginx/conf/ssl/$nginxdomain/ocsp.resp;
-  resolver 8.8.8.8 valid=600s;
-  resolver_timeout 5s;
-
-
-  include rewrite/none.conf;
-  #error_page   404   /404.html;
-
-  # Deny access to PHP files in specific directory
-  #location ~ /(wp-content|uploads|wp-includes|images)/.*\.php$ { deny all; }
-
-  include enable-php-pathinfo.conf;
-
-  location ~ .*\.(gif|jpg|jpeg|png|bmp|swf)$
-  {
-      expires      30d;
-  }
-
-  location ~ .*\.(js|css)?$
-  {
-      expires      12h;
-  }
-
-  location ~ /.well-known {
-      allow all;
-  }
-
-  location ~ /\.
-  {
-      deny all;
-  }
-
-location /dq {
-  proxy_http_version 1.1;
-  proxy_set_header Upgrade \$http_upgrade;
-  proxy_set_header Connection "Upgrade";
-  proxy_set_header Host "$vpsdomain";
-  proxy_set_header X-Real-IP \$remote_addr;
-  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-  proxy_read_timeout      86400;
-  keepalive_requests      25600;
-  keepalive_timeout       300 300;
-  proxy_buffering         off;
-  proxy_buffer_size       8k;
-  proxy_intercept_errors  on;
-  proxy_pass              http://dns-backend;
-}
-
-location $v2path {
-  proxy_http_version 1.1;
-  proxy_set_header Upgrade \$http_upgrade;
-  proxy_set_header Connection "Upgrade";
-  proxy_set_header Host \$http_host;
-  proxy_set_header X-Real-IP \$remote_addr;
-  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-  proxy_read_timeout      86400;
-  keepalive_requests      25600;
-  keepalive_timeout       300 300;
-  proxy_buffering         off;
-  proxy_buffer_size       8k;
-  proxy_intercept_errors  on;
-  proxy_pass              http://127.0.0.1:11811;
-}
-  access_log off;
-  error_log off;
-}
-EOF
-}
-
 
 function installpihole(){
 curl -sSL https://install.pi-hole.net | bash
@@ -473,7 +326,7 @@ git clone https://github.com/m13253/dns-over-https.git
 cd dns-over-https
 make -j $(nproc --all) && make install
 cd ~
-wget https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Server/doh-server.conf -O /etc/dns-over-https/doh-server.conf
+wget -O /etc/dns-over-https/doh-server.conf https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Server/doh-server.conf
 rm -rf ~/dns-over-https
 }
 
@@ -496,7 +349,7 @@ crontab now.cron
 fi
 rm -rf now.cron
 
-wget https://github.com/jacyl4/de_GWD/raw/master/de_GWD_Server/sample.zip
+wget -N https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Server/sample.zip
 unzip sample.zip 
 rsync -r ~/sample/* /var/www/html/
 rm -rf ~/sample*
@@ -524,14 +377,13 @@ cd ~
 preinstall
 
 installv2ray
-wget https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Server/v2wt-server.json -O /etc/v2ray/config.json
+wget -O /etc/v2ray/config.json https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Server/v2wt-server.json
 sed -i '/"id":/c\"id": "'$uuidnum'",'  /etc/v2ray/config.json
 sed -i '/"path":/c\"path": "'$v2path'"'  /etc/v2ray/config.json
 systemctl restart v2ray
 systemctl enable v2ray
 
 
-if [[ "$(nginx -v 2>&1 | awk  '{print $3}' | cut -d'/' -f1)" != "nginx" ]] || [[ -d "/etc/nginx" ]]; then
 apt install -y nginx socat
 
 purenginxconf
@@ -540,9 +392,6 @@ makessl
 
 purenginxwebconf
 
-elif [[ -d "/usr/local/nginx" ]]; then
-installnginxlnmp
-fi
 
 mkdir -p /etc/systemd/system/nginx.service.d
 printf "[Service]\nExecStartPost=/bin/sleep 0.1\n" > /etc/systemd/system/nginx.service.d/override.conf
@@ -552,7 +401,7 @@ systemctl enable nginx
 
 installpihole
 
-wget https://dl.google.com/go/go1.11.9.linux-amd64.tar.gz
+wget -N https://dl.google.com/go/go1.11.9.linux-amd64.tar.gz
 tar -xvf go*linux-amd64.tar.gz
 rm -rf ~/go*linux-amd64.tar.gz
 rsync -r ~/go /usr/local
@@ -613,11 +462,11 @@ blue "------------------"
 
 installlowlatencybbr(){
 mkdir -p ~/bbrkernel && cd ~/bbrkernel
-wget http://ftp.br.debian.org/debian/pool/main/o/openssl/libssl1.0.0_1.0.1t-1+deb8u8_amd64.deb
+wget -N http://ftp.br.debian.org/debian/pool/main/o/openssl/libssl1.0.0_1.0.1t-1+deb8u8_amd64.deb
 dpkg -i libssl1.0.0_1.0.1t-1+deb8u8_amd64.deb
-wget -N --no-check-certificate https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-headers-4.16.2-041602_4.16.2-041602.201804121130_all.deb
-wget -N --no-check-certificate https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-headers-4.16.2-041602-lowlatency_4.16.2-041602.201804121130_amd64.deb
-wget -N --no-check-certificate https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-image-4.16.2-041602-lowlatency_4.16.2-041602.201804121130_amd64.deb
+wget -N https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-headers-4.16.2-041602_4.16.2-041602.201804121130_all.deb
+wget -N https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-headers-4.16.2-041602-lowlatency_4.16.2-041602.201804121130_amd64.deb
+wget -N https://kernel.ubuntu.com/~kernel-ppa/mainline/v4.16.2/linux-image-4.16.2-041602-lowlatency_4.16.2-041602.201804121130_amd64.deb
 dpkg -i linux-headers-*_all.deb
 dpkg -i linux-headers-*-lowlatency_*_amd64.deb
 dpkg -i linux-image-*-lowlatency_*_amd64.deb
@@ -627,8 +476,8 @@ cat > ~/bbrkernel/clearkernel <<EOF
 PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 
 cd ~/bbrkernel
-wget -O Makefile https://github.com/jacyl4/tcp-nanqinlang/raw/master/Makefile/Makefile-Debian9
-wget https://github.com/jacyl4/tcp-nanqinlang/raw/master/General/Debian/source/kernel-v4.16/tcp_nanqinlang.c
+wget -O Makefile https://raw.githubusercontent.com/gwdburst/general/master/Makefile/Makefile-Debian9
+wget -N https://raw.githubusercontent.com/gwdburst/general/master/General/Debian/source/kernel-v4.16/tcp_nanqinlang.c
 make -j \$(nproc --all) && make install
 
 sed -i '/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf
@@ -661,8 +510,8 @@ reboot
 
 installbbrplus(){
 mkdir -p ~/bbrkernel && cd ~/bbrkernel
-wget -N --no-check-certificate http://github.com/cx9208/Linux-NetSpeed/raw/master/bbrplus/debian-ubuntu/x64/linux-headers-4.14.91.deb
-wget -N --no-check-certificate http://github.com/cx9208/Linux-NetSpeed/raw/master/bbrplus/debian-ubuntu/x64/linux-image-4.14.91.deb
+wget -N https://raw.githubusercontent.com/cx9208/Linux-NetSpeed/master/bbrplus/debian-ubuntu/x64/linux-headers-4.14.91.deb
+wget -N https://raw.githubusercontent.com/cx9208/Linux-NetSpeed/master/bbrplus/debian-ubuntu/x64/linux-image-4.14.91.deb
 dpkg -i linux-headers-*.deb
 dpkg -i linux-image-*.deb
 
@@ -698,7 +547,7 @@ reboot
 
 
 
-change_staticip(){
+changestaticip(){
     green "====================="
     green "本机地址（留空回车跳过）"
     green "====================="
@@ -727,7 +576,36 @@ blue "------------------"
 
 
 
-modify_upstream(){
+changev2rayverify(){
+    green "========="
+    green "新的UUID"
+    green "========="
+    read v2raynuuid
+
+    green "========="
+    green "新的path"
+    green "========="
+    read v2raynpath
+
+if [[ -d "/etc/nginx" ]]; then
+sed -i "$(sed -n -e '/location/=' /etc/nginx/conf.d/default.conf | awk 'NR==2{print}')s/.*/location "'\'$v2raynpath''" {/" /etc/nginx/conf.d/default.conf
+elif [[ -d "/usr/local/nginx" ]]; then
+nginxconf="$(rev <<< $(cd /usr/local/nginx/conf/vhost/ && ls) | cut -d"." -f2- | rev).conf"
+sed -i "$(sed -n -e '/location/=' /usr/local/nginx/conf/vhost/$nginxconf | awk 'NR==12{print}')s/.*/location "'\'$v2raynpath''" {/" /usr/local/nginx/conf/vhost/$nginxconf
+fi
+systemctl restart nginx
+
+sed -i "$(sed -n -e '/"id":/=' /etc/v2ray/config.json | awk 'NR==1{print}')s/.*/"'"id"'": "'"'$v2raynuuid'"'",/" /etc/v2ray/config.json
+sed -i "$(sed -n -e '/"path":/=' /etc/v2ray/config.json | awk 'NR==1{print}')s/.*/"'"path"'": "'"\'$v2raynpath'"'"/" /etc/v2ray/config.json
+systemctl restart v2ray
+blue "-------------------------"
+blue  "修改本机UUID&path [完毕]"
+blue "-------------------------"
+}
+
+
+
+changev2rayupstream(){
     green "==============================="
     green "Y.修改上级跃点 / N.删除上级跃点"
     green "==============================="
@@ -810,35 +688,6 @@ fi
 
 
 
-change_v2rayverify(){
-    green "========="
-    green "新的UUID"
-    green "========="
-    read v2raynuuid
-
-    green "========="
-    green "新的path"
-    green "========="
-    read v2raynpath
-
-if [[ -d "/etc/nginx" ]]; then
-sed -i "$(sed -n -e '/location/=' /etc/nginx/conf.d/default.conf | awk 'NR==2{print}')s/.*/location "'\'$v2raynpath''" {/" /etc/nginx/conf.d/default.conf
-elif [[ -d "/usr/local/nginx" ]]; then
-nginxconf="$(rev <<< $(cd /usr/local/nginx/conf/vhost/ && ls) | cut -d"." -f2- | rev).conf"
-sed -i "$(sed -n -e '/location/=' /usr/local/nginx/conf/vhost/$nginxconf | awk 'NR==12{print}')s/.*/location "'\'$v2raynpath''" {/" /usr/local/nginx/conf/vhost/$nginxconf
-fi
-systemctl restart nginx
-
-sed -i "$(sed -n -e '/"id":/=' /etc/v2ray/config.json | awk 'NR==1{print}')s/.*/"'"id"'": "'"'$v2raynuuid'"'",/" /etc/v2ray/config.json
-sed -i "$(sed -n -e '/"path":/=' /etc/v2ray/config.json | awk 'NR==1{print}')s/.*/"'"path"'": "'"\'$v2raynpath'"'"/" /etc/v2ray/config.json
-systemctl restart v2ray
-blue "-------------------------"
-blue  "修改本机UUID&path [完毕]"
-blue "-------------------------"
-}
-
-
-
 updatepihole(){
 installpihole
 
@@ -856,23 +705,17 @@ uuidnum=$(awk "/[Ri]d/" /etc/v2ray/config.json | awk 'NR==1{print}' | cut -d '"'
 v2path=$(awk "/[Rp]ath/" /etc/v2ray/config.json | awk 'NR==1{print}' | cut -d '"' -f 4)
 
 installv2ray
-wget https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Server/v2wt-server.json -O /etc/v2ray/config.json
+wget -O /etc/v2ray/config.json https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Server/v2wt-server.json
 sed -i '/"id":/c\"id": "'$uuidnum'",'  /etc/v2ray/config.json
 sed -i '/"path":/c\"path": "'$v2path'"'  /etc/v2ray/config.json
 systemctl daemon-reload
 systemctl restart v2ray
 systemctl enable v2ray
 
-if [[ "$(nginx -v 2>&1 | awk  '{print $3}' | cut -d'/' -f1)" != "nginx" ]] || [[ -d "/etc/nginx" ]]; then
 vpsdomain=$(cd /var/www/ssl/ && ls 2>&1 | grep *crt | cut -d . -f3 --complement)
 
 purenginxconf
 
-purenginxwebconf
-
-elif [[ -d "/usr/local/nginx" ]]; then
-installnginxlnmp
-fi
 systemctl restart nginx
 
 installdoh
@@ -935,16 +778,16 @@ blue "--------------------------"
     green "         服务端            "
     green "介绍：一键安装de_GWD        "
     green "系统：仅测于Debian9         "
-    green "作者：jacyl4               "
-    green "网站：jacyl4.github.io     "
+    green "作者：GWDburst             "
+    green "网站：GWDburst.github.io   "
     green "=========================="
     echo
     green  "1. 安装de_GWD"
-    green  "2. 安装低延迟内核+南琴浪bbr并重启生效"
-    green  "3. 安装bbrplus并重启生效"
+    green  "2. 切换至低延迟内核+南琴浪bbr并重启生效"
+    green  "3. 切换至bbrplus并重启生效"
     red    "6. 更改静态IP"
-    yellow "7. 设置v2ray上级跃点"
-    yellow "8. 修改本机UUID&path"
+    yellow "7. 更换v2ray UUID & path"
+    yellow "8. 设置v2ray 上级跃点"
     yellow "9. 更新Pi-hole"
     yellow "0. 更新de_GWD"
     red    "CTRL+C退出"
@@ -964,15 +807,15 @@ blue "--------------------------"
     start_menu
     ;;
     6)
-    change_staticip
+    changestaticip
     start_menu 
     ;;
     7)
-    modify_upstream
+    changev2rayverify
     start_menu 
     ;;
     8)
-    change_v2rayverify
+    changev2rayupstream
     start_menu 
     ;;
     9)

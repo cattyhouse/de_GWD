@@ -1,35 +1,21 @@
-![de_GWD](https://i.loli.net/2019/05/08/5cd295163b73a.png)
+![de_GWD](https://i.loli.net/2019/06/05/5cf78011df0b260138.png)
 
-[详情](https://jacyl4.github.io/post/debian-gateway/)
 
-### 服务端：
-
+### Server：
+Quick install version
 ```
-快速安装版
-apt-get install -y curl
-curl -O https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Server/server && chmod +x server && ./server
+bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Server/server)
 ```
 
+Run-time compilation version
 ```
-大力编译版
-apt-get install -y curl
-curl -O https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Server/server2 && chmod +x server2 && ./server2
+bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Server/server2)
 ```
 
-![服务端](https://i.loli.net/2019/05/31/5cf04ea75135163355.png)
+![server](https://i.loli.net/2019/06/14/5d03ad95b24e979626.png)
 
-### 客户端：
+### Client：
 ```
-wget --no-check-certificate https://raw.githubusercontent.com/jacyl4/de_GWD/master/de_GWD_Client/client -O ~/client && chmod +x ~/client && ~/client
+bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/gwdburst/de_GWD/master/de_GWD_Client/client)
 ```
-![客户端](https://i.loli.net/2019/05/31/5cf04ea736faf86947.png)
-
-
-* * *  
-
-<p align="center">
-<img src="https://i.loli.net/2019/05/31/5cf09b2102df023402.jpg">
-</p>
-<p align="center">
-<img width="360" src="https://i.loli.net/2019/05/31/5cf09cae0e15a99033.png">
-</p>
+![client](https://i.loli.net/2019/06/14/5d03acb0d7c8a12948.png)

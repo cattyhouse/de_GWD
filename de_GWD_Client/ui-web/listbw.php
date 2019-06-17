@@ -174,7 +174,7 @@ alert("黑白名单已提交");
       <footer class="sticky-footer">
         <div class="container my-auto">
           <div class="copyright text-center my-auto">
-            <span>Copyright © de_GWD by JacyL4 2019</span>
+            <span>Copyright © de_GWD by GWDburst 2019</span>
           </div>
         </div>
       </footer>
@@ -184,6 +184,12 @@ alert("黑白名单已提交");
 
   </div>
   <!-- /#wrapper -->
+<script> 
+window.onload = function() {
+$("body").toggleClass("sidebar-toggled");
+$(".sidebar").toggleClass("toggled");
+}
+</script>
 
   <!-- Scroll to Top Button-->
   <a class="scroll-to-top rounded" href="#page-top">
